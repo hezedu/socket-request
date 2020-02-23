@@ -6,11 +6,21 @@ const kvSpliter = ': ';
 const lineSpliter = '\n';
 const replyIdMark = 'r_';
 const MAX_LEN = 50000;
+const defCompressTriggerPoint = 16 * 1024;
 function _warpLine(k, v){
   return k + kvSpliter + v + lineSpliter;
 }
 function noop(){}
-function SocketRequest(socket, isWs){
+function SocketRequest(socket, opt){
+  opt = opt || Object.create(null);
+  this.isCompress = opt.isCompress;
+  if(this.isCompress){
+    this.compressTriggerPoint = opt.compressTriggerPoint === undefined ? defCompressTriggerPoint : opt.compressTriggerPoint;
+    this.deflateFn = opt.deflateFn;
+    this.inflateFn = opt.inflateFn;
+  }
+
+  this.opt = opt;
   this.cbMap = Object.create(null);
   this.socket = socket;
   this.receiveData = '';
@@ -18,7 +28,7 @@ function SocketRequest(socket, isWs){
   this.timeout = 10000;
   this.id = 0;
   this.onRequest = null;
-  if(isWs){
+  if(opt.isWs){
     // socket is ws;
     socket.addEventListener('message', (e) => {
       this.receiveHandle(e.data);
@@ -26,7 +36,7 @@ function SocketRequest(socket, isWs){
     socket.addEventListener('error', (err) => {
       this.errorHandle(err);
     });
-    this.write = function(data){
+    this._write = function(data){
       socket.send(data);
     }
     this.end = function(msg){
@@ -39,7 +49,7 @@ function SocketRequest(socket, isWs){
     socket.on('error', (err) => {
       this.errorHandle(err);
     });
-    this.write = function(data){
+    this._write = function(data){
       socket.write(data);
     }
     this.end = function(data){
@@ -47,7 +57,22 @@ function SocketRequest(socket, isWs){
     }
   }
 }
-SocketRequest.prototype.receiveHandle = function(strData){
+SocketRequest.prototype.write = function(data){
+  if(this.isCompress && data.length > this.compressTriggerPoint){
+    this._write(this.deflateFn(data));
+  } else {
+    this._write(data);
+  }
+}
+SocketRequest.prototype.receiveHandle = function(data){
+  let strData = data;
+  if(typeof strData !== 'string' && this.isCompress){
+    strData = this.inflateFn(data);
+  }
+  if(typeof strData !== 'string'){
+    this.end('Data is not string.');
+    return;
+  }
   this.receiveData = this.receiveData + strData;
   this._receiveEmit();
 }
