@@ -10,7 +10,7 @@ function _warpLine(k, v){
   return k + kvSpliter + v + lineSpliter;
 }
 function noop(){}
-function SocketRequest(socket){
+function SocketRequest(socket, isWs){
   this.cbMap = Object.create(null);
   this.socket = socket;
   this.receiveData = '';
@@ -18,22 +18,44 @@ function SocketRequest(socket){
   this.timeout = 10000;
   this.id = 0;
   this.onRequest = null;
-  // socket.once('data', () => {
-  //   setTimeout(() => {
-  //     socket.end('')
-  //   }, 10000);
-  // });
-  socket.on('data', (strData) => {
-    this.receiveData = this.receiveData + strData;
-    this._receiveEmit();
-  });
-
-  socket.on('error', (err) => {
-    console.error(err);
-    this.cbMap = Object.create(null);
-    this._receiveEmit = noop;
-    this.receiveData = '';
-  })
+  if(isWs){
+    // socket is ws;
+    socket.addEventListener('message', (e) => {
+      this.receiveHandle(e.data);
+    });
+    socket.addEventListener('error', (err) => {
+      this.errorHandle(err);
+    });
+    this.write = function(data){
+      socket.send(data);
+    }
+    this.end = function(msg){
+      socket.close(1011, msg);
+    }
+  } else {
+    socket.on('data', (strData) => {
+      this.receiveHandle(strData);
+    });
+    socket.on('error', (err) => {
+      this.errorHandle(err);
+    });
+    this.write = function(data){
+      socket.write(data);
+    }
+    this.end = function(data){
+      socket.end(data);
+    }
+  }
+}
+SocketRequest.prototype.receiveHandle = function(strData){
+  this.receiveData = this.receiveData + strData;
+  this._receiveEmit();
+}
+SocketRequest.prototype.errorHandle = function(err){
+  console.error(err);
+  this.cbMap = Object.create(null);
+  this._receiveEmit = noop;
+  this.receiveData = '';
 }
 
 SocketRequest.prototype.genId = function(){
@@ -60,7 +82,7 @@ SocketRequest.prototype.request = function(obj, callback){
   let data =  _wrapMsg(id, obj);
   //_console.log('request: ');
   //_console.log(data);
-  this.socket.write(data);
+  this.write(data);
   if(callback){
     let timer = setTimeout(() => {
       this.triggerCb(id, {
@@ -101,22 +123,22 @@ SocketRequest.prototype._receiveEmit = function(){
             let wrapedData = _wrapMsg(replyIdMark + data.id, replyData);
             //_console.log('reply: ');
             //_console.log(wrapedData);
-            this.socket.write(wrapedData);
+            this.write(wrapedData);
           });
         }
       }
       return;
     } else {
-      this.socket.end('receive invalid Server-Send data.');
+      this.end('receive invalid Server-Send data.');
     }
   } else {
     if(data.indexOf('id' + kvSpliter) !== 0){
-      this.socket.end('receive invalid Server-Send data.');
+      this.end('receive invalid Server-Send data.');
       return;
     }
     if(this.receiveData.length > MAX_LEN){ 
       this.receiveData = '';
-      this.socket.end('Received data too large.');
+      this.end('Received data too large.');
     }
   }
   
