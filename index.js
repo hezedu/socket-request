@@ -18,6 +18,13 @@ function SocketRequest(socket, opt){
     this.compressTriggerPoint = opt.compressTriggerPoint === undefined ? defCompressTriggerPoint : opt.compressTriggerPoint;
     this.deflateFn = opt.deflateFn;
     this.inflateFn = opt.inflateFn;
+    if(opt.isWs && this.isCompress){
+      this.isInfateAsync = this.inflateFn.length > 1;
+      if(this.isInfateAsync){
+        this.receiveProcess = [];
+        this.isLoop = false;
+      }
+    }
   }
 
   this.opt = opt;
@@ -31,7 +38,12 @@ function SocketRequest(socket, opt){
   if(opt.isWs){
     // socket is ws;
     socket.addEventListener('message', (e) => {
-      this.receiveHandle(e.data);
+      if(this.isInfateAsync){
+        this.receiveHandleAsync(e.data);
+      } else {
+        this.receiveHandle(e.data);
+      }
+      
     });
     socket.addEventListener('error', (err) => {
       this.errorHandle(err);
@@ -76,6 +88,43 @@ SocketRequest.prototype.receiveHandle = function(data){
   this.receiveData = this.receiveData + strData;
   this._receiveEmit();
 }
+// for ws
+SocketRequest.prototype.receiveHandleAsync = function(data){
+  let strData = data;
+  if(typeof data !== 'string'){
+    this.receiveProcess.push((cb) => {
+      this.inflateFn(data, cb);
+    });
+  } else {
+    this.receiveProcess.push(data);
+  }
+  if(this.isLoop){
+    return;
+  }
+  this.isLoop = true;
+  this.receiveAsyncLoop();
+}
+SocketRequest.prototype.receiveAsyncLoop = function(){
+  let data = this.receiveProcess.shift();
+  if(typeof data === 'string'){
+    this.receiveHandle(data);
+    if(this.receiveProcess.length === 0){
+      this.isLoop = false;
+      return;
+    }
+    this.receiveAsyncLoop();
+  } else {
+    data((strData) => {
+      this.receiveHandle(strData);
+      if(this.receiveProcess.length === 0){
+        this.isLoop = false;
+        return;
+      }
+      this.receiveAsyncLoop();
+    })
+  }
+}
+
 SocketRequest.prototype.errorHandle = function(err){
   console.error(err);
   this.cbMap = Object.create(null);
