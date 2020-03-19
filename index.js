@@ -193,12 +193,17 @@ SocketRequest.prototype._receiveEmit = function(){
         this.triggerCb(cbId, realData);
       } else {
         if(this.onRequest){
-          this.onRequest(realData, (replyData) => {
-            let wrapedData = _wrapMsg(replyIdMark + data.id, replyData);
-            //_console.log('reply: ');
-            //_console.log(wrapedData);
-            this.write(wrapedData);
-          });
+          if(this.onRequest.length > 1){
+            this.onRequest(realData, (replyData) => {
+              let wrapedData = _wrapMsg(replyIdMark + data.id, replyData);
+              //_console.log('reply: ');
+              //_console.log(wrapedData);
+              this.write(wrapedData);
+            });
+          } else {
+            this.onRequest(realData);
+          }
+
         }
       }
       return;
