@@ -1,19 +1,27 @@
 // data format: https://developer.mozilla.org/zh-CN/docs/Server-sent_events/Using_server-sent_events
 // only Support 'id', 'data'.
+// https://tools.ietf.org/html/rfc894 46
+// id type data\n, 
+// 9,1,"1_1"\n
 
-const dataSpliter = '\n\n';
-const kvSpliter = ': ';
-const lineSpliter = '\n';
-const replyIdMark = 'r_';
+
+function noop(){};
+
+const dataSpliter = '\n';
+const dataSpliterLen = dataSpliter.length;
+const replyIdMark = 'r';
+const replayIdMarkLen = replyIdMark.length;
+const kvSpliter = ',';
+const kvSpliterLen = kvSpliter.length;
+
 const MAX_LEN = 50000;
-const defCompressTriggerPoint = 16 * 1024;
-function _warpLine(k, v){
-  return k + kvSpliter + v + lineSpliter;
-}
-function noop(){}
+const defCompressTriggerPoint = 1460; // https://www.imperva.com/blog/mtu-mss-explained/
+
 function SocketRequest(socket, opt){
+
   opt = opt || Object.create(null);
   this.isCompress = opt.isCompress;
+
   if(this.isCompress){
     this.compressTriggerPoint = opt.compressTriggerPoint === undefined ? defCompressTriggerPoint : opt.compressTriggerPoint;
     this.deflateFn = opt.deflateFn;
@@ -33,8 +41,11 @@ function SocketRequest(socket, opt){
   this.receiveData = '';
   this.onReceive = noop;
   this.timeout = 10000;
-  this.id = 0;
+  this.recycleIndex = new RecycleIndex();
   this.onRequest = null;
+  this.langRequestTimer = null;
+  this.langRequesTimeout = 10000;
+  this.isEnd = false;
   if(opt.isWs){
     // socket is ws;
     socket.addEventListener('message', (e) => {
@@ -48,10 +59,18 @@ function SocketRequest(socket, opt){
     socket.addEventListener('error', (err) => {
       this.errorHandle(err);
     });
+    socket.addEventListener('close', () => {
+      this.isEnd = true;
+      this.clear();
+    });
     this._write = function(data){
       socket.send(data);
     }
-    this.end = function(msg){
+    this.end = (msg) => {
+      if(this.isEnd){
+        return;
+      }
+      this.isEnd = true;
       socket.close(1011, msg);
     }
   } else {
@@ -61,14 +80,30 @@ function SocketRequest(socket, opt){
     socket.on('error', (err) => {
       this.errorHandle(err);
     });
+    socket.on('close', () => {
+      this.isEnd = true;
+      this.clear();
+    });
     this._write = function(data){
       socket.write(data);
     }
-    this.end = function(data){
-      socket.end(data);
+    this.end = (errMsg) => {
+      if(this.isEnd){
+        return;
+      }
+      this.isEnd = true;
+      this._write(wrapMsg('', false, ['error', errMsg]));
     }
   }
 }
+SocketRequest.prototype.getId = function(){
+  return this.recycleIndex.get();
+}
+
+SocketRequest.prototype.recycleId = function(id){
+  this.recycleIndex.recycle(id);
+}
+
 SocketRequest.prototype.write = function(data){
   if(this.isCompress && data.length > this.compressTriggerPoint){
     this._write(this.deflateFn(data));
@@ -127,37 +162,30 @@ SocketRequest.prototype.receiveAsyncLoop = function(){
 
 SocketRequest.prototype.errorHandle = function(err){
   console.error(err);
-  this.cbMap = Object.create(null);
-  this._receiveEmit = noop;
-  this.receiveData = '';
+  // this.cbMap = Object.create(null);
+  // this._receiveEmit = noop;
+  // this.receiveData = '';
 }
 
-SocketRequest.prototype.genId = function(){
-  this.id = this.id + 1;
-  return this.id;
-}
-SocketRequest.prototype.clearCb = function(id){
-  delete(this.cbMap[id]);
-}
+// SocketRequest.prototype.genId = function(){
+//   this.id = this.id + 1;
+//   return this.id;
+// }
+
 SocketRequest.prototype.triggerCb = function(id, data){
-  
-  //_console.log('triggerCb:', id, this.cbMap[id]);
-  //_console.log(data);
-  //_console.log('\n');
-  const cb = this.cbMap[id];
-  if(cb){
-    cb(data);
-    this.clearCb(id);
+  const info = this.cbMap[id];
+  if(info){
+    delete(this.cbMap[id]);
+    this.recycleId(id);
+    clearTimeout(info.timer);
+    info.callback(data);
   }
 }
 
 SocketRequest.prototype.request = function(obj, callback){
-  const id = this.genId();
-  let data =  _wrapMsg(id, obj);
-  //_console.log('request: ');
-  //_console.log(data);
-  this.write(data);
+  let id;
   if(callback){
+    id = this.getId();
     let timer = setTimeout(() => {
       this.triggerCb(id, {
         status: 'error',
@@ -165,11 +193,15 @@ SocketRequest.prototype.request = function(obj, callback){
       });
     }, this.timeout);
 
-    this.cbMap[id] = (result) => {
-      clearTimeout(timer);
-      callback(result);
+    this.cbMap[id] = {
+      timer,
+      callback
     };
+
+  } else {
+    id = '';
   }
+  this.write(wrapMsg(id, false, obj));
 }
 
 
@@ -177,72 +209,144 @@ SocketRequest.prototype._receiveEmit = function(){
   let i = this.receiveData.indexOf(dataSpliter);
   if(i !== -1){
     // 分离连一起的数据。
+    if(this.langRequestTimer){
+      clearTimeout(this.langRequestTimer);
+      this.langRequestTimer = null;
+    }
     let data = this.receiveData.substr(0, i);
-    this.receiveData = this.receiveData.substr(i + dataSpliter.length);
-
-    data = parseServerSendData(data);
-    
-    if(data.id && data.data){
-      if(this.receiveData){
-        this._receiveEmit();
-      }
-      const realData = JSON.parse(data.data);
-      const replyIndex = data.id.indexOf(replyIdMark);
-      if(replyIndex !== -1){
-        const cbId = data.id.substr(replyIndex + replyIdMark.length);
-        this.triggerCb(cbId, realData);
-      } else {
-        if(this.onRequest){
-          if(this.onRequest.length > 1){
-            this.onRequest(realData, (replyData) => {
-              let wrapedData = _wrapMsg(replyIdMark + data.id, replyData);
-              //_console.log('reply: ');
-              //_console.log(wrapedData);
-              this.write(wrapedData);
-            });
-          } else {
-            this.onRequest(realData);
-          }
-
-        }
-      }
+    this.receiveData = this.receiveData.substr(i + dataSpliterLen);
+    try {
+      data = parse(data);
+    } catch(e){
+      this.end('socket-request parse error: ' + e.message);
       return;
+    }
+
+    if(data.isReply){
+      this.triggerCb(data.id, data.data);
     } else {
-      this.end('receive invalid Server-Send data.');
+      if(this.onRequest){
+        // if(this.onRequest.length === 1){
+        //   this.onRequest(data.data);
+        // } else {
+          this.onRequest(data.data, (replyData) => {
+            let wrapedData = wrapMsg(data.id, true, replyData);
+            this.write(wrapedData);
+          });
+        // }
+      }
+    }
+
+    if(this.receiveData){
+      this._receiveEmit();
     }
   } else {
-    if(data.indexOf('id' + kvSpliter) !== 0){
-      this.end('receive invalid Server-Send data.');
-      return;
-    }
-    if(this.receiveData.length > MAX_LEN){ 
-      this.receiveData = '';
-      this.end('Received data too large.');
-    }
+    this.handleLangRequest();
   }
   
 }
-
-function _wrapMsg(id, obj){
-  let data =  _warpLine('id', id);
-  data = data + _warpLine('data', JSON.stringify(obj));
-  data = data + '\n';
-  return data;
+SocketRequest.prototype.clear = function(){
+  if(this.langRequestTimer){
+    clearTimeout(this.langRequestTimer);
+  }
+  const map = this.cbMap;
+  for(let i in map){
+    clearTimeout(map[i].timer);
+    delete(map[i]);
+  }
+  this.receiveData = '';
+  this._receiveEmit = noop;
+}
+SocketRequest.prototype.handleLangRequest = function(){
+  if(this.receiveData.length > MAX_LEN){ 
+    this.receiveData = '';
+    this.end('Received data too large.');
+  }
+  if(this.langRequestTimer){
+    return;
+  }
+  this.langRequestTimer = setTimeout(() => {
+    this.receiveData = '';
+    this.end('Receive data too time lang.');
+  }, this.langRequesTimeout);
 }
 
-function parseServerSendData(str){
-  const arr = str.split(lineSpliter);
-  const result = Object.create(null);
-  let i, key, value;
-  arr.forEach(v => {
-    i = v.indexOf(kvSpliter);
-    if(i !== -1){
-      key = v.substr(0, i);
-      value = v.substr(i + kvSpliter.length);
-      result[key] = value;
+function wrapMsg(_id, isReply, data){
+  let id = _id;
+  let dataStr = JSON.stringify(data);
+  if(dataStr[0] === '['){
+    // [v,v,...]
+    dataStr = dataStr.substr(1);
+    // v,v,...]
+    dataStr = dataStr.substr(0, dataStr.length -1);
+    // v,v,...
+  }
+  if(!id){
+    id = '';
+  } else {
+    if(isReply){
+      id = replyIdMark + id;
     }
-  });
-  return result;
+  }
+  return id + kvSpliter + dataStr + dataSpliter;
+}
+
+function parse(str){
+  let id, isReply = false, data;
+  const i = str.indexOf(kvSpliter);
+  if(i === 0){
+    id = null;
+  }else if(i === -1){
+    throw new Error('not have kvSpliter: " ' + kvSpliter + ' "');
+  } else {
+    id = str.substr(0, i);
+    if(id[0] === replyIdMark) {
+      isReply = true;
+      id = id.substr(replayIdMarkLen);
+    }
+    id = Number(id);
+    if(!id){
+      throw new Error('id is not number');
+    }
+  }
+  data = str.substr(i + kvSpliterLen);
+  if(data[0] !== '{'){
+    data = '[' + data + ']';
+  }
+  data = JSON.parse(data);
+  return {
+    id,
+    isReply,
+    data
+  }
+}
+
+// function verifyStart(str){
+//   if(str[0] )
+// }
+SocketRequest.wrapUnreplyMsg = function(data){
+  wrapMsg('', false, data);
+}
+SocketRequest.compressTriggerPoint = defCompressTriggerPoint;
+
+// RecycleIndex copyright: https://github.com/hezedu/SomethingBoring/blob/master/algorithm/recycle-index.js 2020/03/21
+function RecycleIndex(){
+  this.index = 0;
+  this.pool = [];
+}
+RecycleIndex.prototype.get = function(){
+  if(this.pool.length){
+    return this.pool.pop();
+  }
+  this.index = this.index + 1;
+  return this.index;
+}
+RecycleIndex.prototype.recycle = function(index){
+  this.pool.push(index);
+  if(this.pool.length === this.index){
+    this.pool = [];
+    this.index = 0;
+  }
 }
 
 module.exports = SocketRequest;
