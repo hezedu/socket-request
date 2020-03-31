@@ -92,7 +92,8 @@ function SocketRequest(socket, opt){
         return;
       }
       this.isEnd = true;
-      this._write(wrapMsg('', false, ['error', errMsg]));
+      this._write(wrapMsg('', false, ['srError', errMsg]));
+      socket.end();
     }
   }
 }
@@ -325,7 +326,7 @@ function parse(str){
 //   if(str[0] )
 // }
 SocketRequest.wrapUnreplyMsg = function(data){
-  wrapMsg('', false, data);
+  return wrapMsg('', false, data);
 }
 SocketRequest.compressTriggerPoint = defCompressTriggerPoint;
 
