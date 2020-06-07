@@ -1,0 +1,24 @@
+{
+  "name": "@hezedu/socket-request",
+  "version": "0.1.0",
+  "description": "request in socket",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hezedu/socket-request.git"
+  },
+  "scripts": {
+    "p": "npm publish --access public"
+  },
+  "files": ["index.js"],
+  "keywords": [
+    "socket",
+    "request"
+  ],
+  "author": "Du Wei <hezedu@hotmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/hezedu/socket-request/issues"
+  },
+  "homepage": "https://github.com/hezedu/socket-request#readme"
+}

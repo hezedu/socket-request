@@ -257,6 +257,7 @@ SocketRequest.prototype.clear = function(){
   }
   this.receiveData = '';
   this._receiveEmit = noop;
+  this._write = noop;
 }
 SocketRequest.prototype.handleLangRequest = function(){
   if(this.receiveData.length > MAX_LEN){ 
