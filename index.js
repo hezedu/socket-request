@@ -276,12 +276,14 @@ SocketRequest.prototype.handleLangRequest = function(){
 function wrapMsg(_id, isReply, data){
   let id = _id;
   let dataStr = JSON.stringify(data);
-  if(dataStr[0] === '['){
+  if(Array.isArray(data)){
     // [v,v,...]
     dataStr = dataStr.substr(1);
     // v,v,...]
     dataStr = dataStr.substr(0, dataStr.length -1);
     // v,v,...
+  } else if(data && typeof data !== 'object'){
+    dataStr = ',' + dataStr;
   }
   if(!id){
     id = '';
@@ -313,7 +315,11 @@ function parse(str){
   }
   data = str.substr(i + kvSpliterLen);
   if(data[0] !== '{'){
-    data = '[' + data + ']';
+    if(data[0] === ','){
+      data = data.substr(1);
+    } else {
+      data = '[' + data + ']';
+    }
   }
   data = JSON.parse(data);
   return {

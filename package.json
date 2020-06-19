@@ -1,6 +1,6 @@
 {
   "name": "@hezedu/socket-request",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "request in socket",
   "main": "index.js",
   "repository": {
