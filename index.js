@@ -56,9 +56,7 @@ function SocketRequest(socket, opt){
       }
       
     });
-    socket.addEventListener('error', (err) => {
-      this.errorHandle(err);
-    });
+    socket.addEventListener('error', opt.onError || noop);
     socket.addEventListener('close', () => {
       this.isEnd = true;
       this.clear();
@@ -77,9 +75,8 @@ function SocketRequest(socket, opt){
     socket.on('data', (strData) => {
       this.receiveHandle(strData);
     });
-    socket.on('error', (err) => {
-      this.errorHandle(err);
-    });
+    // Prevent throw error like Error: read ECONNRESET.
+    socket.on('error', opt.onError || noop);
     socket.on('close', () => {
       this.isEnd = true;
       this.clear();
@@ -161,12 +158,12 @@ SocketRequest.prototype.receiveAsyncLoop = function(){
   }
 }
 
-SocketRequest.prototype.errorHandle = function(err){
-  console.error(err);
-  // this.cbMap = Object.create(null);
-  // this._receiveEmit = noop;
-  // this.receiveData = '';
-}
+// SocketRequest.prototype.errorHandle = function(err){
+//   console.error(err);
+//   // this.cbMap = Object.create(null);
+//   // this._receiveEmit = noop;
+//   // this.receiveData = '';
+// }
 
 // SocketRequest.prototype.genId = function(){
 //   this.id = this.id + 1;
@@ -314,12 +311,14 @@ function parse(str){
     }
   }
   data = str.substr(i + kvSpliterLen);
-  if(data[0] !== '{'){
-    if(data[0] === ','){
+  switch(data[0]){
+    case '{':
+      break;
+    case ',':
       data = data.substr(1);
-    } else {
+      break;
+    default:
       data = '[' + data + ']';
-    }
   }
   data = JSON.parse(data);
   return {

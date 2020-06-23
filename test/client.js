@@ -17,9 +17,15 @@ const msgs = [objMsg,
   boolMsg,
   nullMsg
 ]
-const client = net.createConnection(4005, function(){
+const client = net.createConnection(40043, function(){
   client.setEncoding('utf-8');
   client.setNoDelay();
+  
+  // client.on('data', function(data){
+  //   console.log(data)
+  // })
+  // client.write('hello')
+
   const sr = new SocketRequest(client);
 
   function loop(i){
@@ -32,4 +38,13 @@ const client = net.createConnection(4005, function(){
     })
   }
   loop(0);
+})
+
+let error;
+client.on('error', function(err){
+  error = err;
+});
+
+client.on('close', function(hadErr){
+  console.error('hadErr', hadErr, error)
 })
