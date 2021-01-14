@@ -18,15 +18,15 @@ const MAX_LEN = 50000;
 const defCompressTriggerPoint = 1460; // https://www.imperva.com/blog/mtu-mss-explained/
 
 function SocketRequest(socket, opt){
-
+  const isWs = _isWs(socket);
   opt = opt || Object.create(null);
-  this.isCompress = opt.isCompress;
+  this.isCompress = opt.isCompress || false;
 
   if(this.isCompress){
     this.compressTriggerPoint = opt.compressTriggerPoint === undefined ? defCompressTriggerPoint : opt.compressTriggerPoint;
     this.deflateFn = opt.deflateFn;
     this.inflateFn = opt.inflateFn;
-    if(opt.isWs && this.isCompress){
+    if(isWs){
       this.isInfateAsync = this.inflateFn.length > 1;
       if(this.isInfateAsync){
         this.receiveProcess = [];
@@ -39,14 +39,13 @@ function SocketRequest(socket, opt){
   this.cbMap = Object.create(null);
   this.socket = socket;
   this.receiveData = '';
-  this.onReceive = noop;
+  this.onReceive = opt.onReceive;
   this.timeout = 10000;
   this.recycleIndex = new RecycleIndex();
-  this.onRequest = null;
   this.langRequestTimer = null;
   this.langRequesTimeout = 10000;
   this.isEnd = false;
-  if(opt.isWs){
+  if(isWs){
     // socket is ws;
     socket.addEventListener('message', (e) => {
       if(this.isInfateAsync){
@@ -223,11 +222,11 @@ SocketRequest.prototype._receiveEmit = function(){
     if(data.isReply){
       this.triggerCb(data.id, data.data);
     } else {
-      if(this.onRequest){
+      if(this.onReceive){
         // if(this.onRequest.length === 1){
         //   this.onRequest(data.data);
         // } else {
-          this.onRequest(data.data, (replyData) => {
+          this.onReceive(data.data, (replyData) => {
             let wrapedData = wrapMsg(data.id, true, replyData);
             this.write(wrapedData);
           });
@@ -328,6 +327,12 @@ function parse(str){
   }
 }
 
+function _isWs(socket){
+  if(typeof window !== undefined && window.WebSocket && socket instanceof window.WebSocket){
+    return true;
+  }
+  return false;
+}
 // function verifyStart(str){
 //   if(str[0] )
 // }
