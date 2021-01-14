@@ -55,7 +55,9 @@ function SocketRequest(socket, opt){
       }
       
     });
-    socket.addEventListener('error', opt.onError || noop);
+    // Same as net.socket on error
+    socket.addEventListener('error', noop);
+    
     socket.addEventListener('close', () => {
       this.isEnd = true;
       this.clear();
@@ -75,7 +77,7 @@ function SocketRequest(socket, opt){
       this.receiveHandle(strData);
     });
     // Prevent throw error like Error: read ECONNRESET.
-    socket.on('error', opt.onError || noop);
+    socket.on('error', noop);
     socket.on('close', () => {
       this.isEnd = true;
       this.clear();
