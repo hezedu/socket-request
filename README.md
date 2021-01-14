@@ -8,10 +8,12 @@
 - `options`
   - `isCompress` <boolean> 是否启用压缩. ***默认*** `false`
   - `compressTriggerPoint` <number> 消息体多大才触发压缩, 小于或等于该值将不会压缩. ***默认*** `1460`
-  - `deflateFn` <Function> `(msgStr)`压缩方法, 需要 return 压缩好的二进制. 需要在 `isCompress` 为 `true` 时提供.
+  - `deflateFn` <Function> `(str)`压缩方法, 需要 return 压缩好的二进制. 需要在 `isCompress` 为 `true` 时提供.
   - `inflateFn` <Function> 解压方法, 需要在 `isCompress` 为 `true` 时提供.
-    - 同步方法: `(bin)` 需要 return `msgStr`.
-    - 异步方法: `(bin, callback)` callback 参数为 `msgStr`. 仅用于 socket 为 WebSocket 实例时.
+    - 同步方法: `(bin)` 需要 return `str`.
+    - 异步方法: `(bin, callback)` 仅用于 socket 为 WebSocket 实例时.
+      - `bin` 压缩过的二进制
+      - `callback` <Function> `(str)` 
   - `onReceive` <Function> `(msg, reply)`收到消息时触发.
     - `msg` <any> 消息
     - `reply` <Function> `(msg)` 回复消息.
