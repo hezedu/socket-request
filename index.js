@@ -57,7 +57,7 @@ function SocketRequest(socket, opt){
     });
     // Same as net.socket on error
     socket.addEventListener('error', noop);
-    
+
     socket.addEventListener('close', () => {
       this.isEnd = true;
       this.clear();
@@ -225,14 +225,10 @@ SocketRequest.prototype._receiveEmit = function(){
       this.triggerCb(data.id, data.data);
     } else {
       if(this.onReceive){
-        // if(this.onRequest.length === 1){
-        //   this.onRequest(data.data);
-        // } else {
-          this.onReceive(data.data, (replyData) => {
-            let wrapedData = wrapMsg(data.id, true, replyData);
-            this.write(wrapedData);
-          });
-        // }
+        this.onReceive(data.data, (replyData) => {
+          let wrapedData = wrapMsg(data.id, true, replyData);
+          this.write(wrapedData);
+        });
       }
     }
 
